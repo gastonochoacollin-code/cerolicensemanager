@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Llaves</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js"></script>
+</head>
+<body>
+<main>
+  <h1>Llaves RSA</h1>
+  <div class="notice">La llave privada nunca debe compartirse ni subirse a GitHub.</div>
+  <section class="card">
+    <p>Estado: <strong id="state">Revisando...</strong></p>
+    <p>Llave publica: <strong id="publicBits">-</strong></p>
+    <p>Llave privada: <strong id="privateBits">-</strong></p>
+    <p>Coinciden: <strong id="keysMatch">-</strong></p>
+    <p>SHA-256 PublicKeyPem: <code id="fingerprint">-</code></p>
+    <p id="keyError" class="error"></p>
+    <div class="actions">
+      <button onclick="generate()">Generar llaves</button>
+      <button class="secondary" onclick="download('/api/keys/public')">Descargar public_key.pem</button>
+    </div>
+  </section>
+</main>
+<script>
+async function load() {
+  const s = await api("/api/keys/status");
+  state.textContent = s.exists ? "Llaves existentes" : "No existen llaves";
+  publicBits.textContent = s.publicKeyBits ? `${s.publicKeyBits} bits` : "-";
+  privateBits.textContent = s.privateKeyBits ? `${s.privateKeyBits} bits` : "-";
+  keysMatch.textContent = s.exists ? (s.keysMatch ? "Si" : "No") : "-";
+  fingerprint.textContent = s.publicKeySha256 || "-";
+  keyError.textContent = s.error || "";
+}
+async function generate() {
+  const result = await api("/api/keys/generate", { method: "POST" });
+  if (!result.generated) alert("Las llaves ya existen. No se reemplazaron.");
+  load();
+}
+load();
+</script>
+</body>
+</html>

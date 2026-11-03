@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clientes</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js"></script>
+</head>
+<body>
+<main>
+  <h1>Clientes</h1>
+  <form id="form">
+    <input type="hidden" id="id">
+    <label>Nombre comercial<input id="commercialName" required></label>
+    <label>Razón social<input id="legalName"></label>
+    <label>RFC<input id="rfc"></label>
+    <label>Contacto<input id="contactName"></label>
+    <label>Email<input id="email" type="email"></label>
+    <label>Teléfono<input id="phone"></label>
+    <label>Estado<select id="status"><option>ACTIVO</option><option>SUSPENDIDO</option></select></label>
+    <label class="full">Notas<textarea id="notes"></textarea></label>
+    <div class="actions full">
+      <button>Guardar</button>
+      <button type="button" class="secondary" onclick="resetForm()">Nuevo</button>
+    </div>
+  </form>
+  <table>
+    <thead><tr><th>ID</th><th>Cliente</th><th>Contacto</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<script>
+let customers = [];
+const fields = ["commercialName","legalName","rfc","contactName","email","phone","status","notes"];
+
+function resetForm() { document.getElementById("form").reset(); document.getElementById("id").value = ""; }
+function edit(id) {
+  const c = customers.find(x => x.id === id);
+  document.getElementById("id").value = c.id;
+  fields.forEach(f => document.getElementById(f).value = c[f] || "");
+}
+async function setStatus(id, action) { await api(`/api/customers/${id}/${action}`, { method: "POST" }); load(); }
+async function load() {
+  customers = await api("/api/customers");
+  rows.innerHTML = customers.map(c => `<tr>
+    <td>${c.id}</td><td>${c.commercialName}<br>${c.legalName || ""}</td><td>${c.contactName || ""}<br>${c.email || ""}</td><td>${c.status}</td>
+    <td class="actions"><button onclick="edit(${c.id})">Editar</button><button class="secondary" onclick="setStatus(${c.id}, 'activate')">Activar</button><button class="warn" onclick="setStatus(${c.id}, 'suspend')">Suspender</button></td>
+  </tr>`).join("");
+}
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = Object.fromEntries(fields.map(f => [f, document.getElementById(f).value]));
+  const id = document.getElementById("id").value;
+  await api(id ? `/api/customers/${id}` : "/api/customers", { method: id ? "PUT" : "POST", body: JSON.stringify(body) });
+  resetForm(); load();
+});
+load();
+</script>
+</body>
+</html>

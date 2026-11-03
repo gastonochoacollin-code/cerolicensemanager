@@ -1,0 +1,31 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Arial, sans-serif; background: #f5f6f8; color: #1f2937; }
+nav { display: flex; gap: 16px; align-items: center; padding: 14px 24px; background: #111827; color: white; }
+nav strong { margin-right: 12px; }
+nav a { color: #d1d5db; text-decoration: none; }
+nav a:hover { color: white; }
+main { max-width: 1180px; margin: 0 auto; padding: 24px; }
+h1 { margin: 0 0 20px; font-size: 28px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.card, form, table { background: white; border: 1px solid #e5e7eb; border-radius: 8px; }
+.card { padding: 18px; }
+.metric { font-size: 32px; font-weight: 700; margin-top: 8px; }
+form { padding: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 20px; }
+label { display: grid; gap: 6px; font-size: 13px; font-weight: 700; }
+input, select, textarea, button { font: inherit; }
+input, select, textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 6px; padding: 9px; background: white; }
+textarea { min-height: 80px; }
+button, .button { border: 0; border-radius: 6px; background: #2563eb; color: white; padding: 10px 13px; cursor: pointer; text-decoration: none; display: inline-block; }
+button.secondary, .button.secondary { background: #4b5563; }
+button.danger { background: #dc2626; }
+button.warn { background: #d97706; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+table { width: 100%; border-collapse: collapse; overflow: hidden; }
+th, td { padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; }
+th { background: #f9fafb; }
+.full { grid-column: 1 / -1; }
+.features { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.features label { display: flex; gap: 8px; font-weight: 400; }
+.notice { padding: 12px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; margin-bottom: 16px; }
+pre { background: #111827; color: #e5e7eb; padding: 14px; border-radius: 8px; overflow: auto; }
+@media (max-width: 720px) { nav { flex-wrap: wrap; } main { padding: 16px; } table { font-size: 13px; } }

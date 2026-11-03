@@ -1,0 +1,40 @@
+# Build and editor output
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+.codex/
+.agents/
+publish/
+artifacts/
+*.user
+*.suo
+*.log
+*.tmp
+*.bak
+*.exe
+*.zip
+
+# Local data, real licenses and cryptographic material
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.dat
+*.pem
+*.pfx
+*.key
+*.cer
+keys/
+exports/
+backups/
+security/
+
+# Private configuration and temporary workspace
+.env
+.env.*
+appsettings.Local.json
+appsettings.*.Local.json
+upload-licenciascero/

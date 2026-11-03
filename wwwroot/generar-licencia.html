@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Generar licencia</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js"></script>
+</head>
+<body>
+<main>
+  <h1>Generar license.dat</h1>
+  <div class="notice">Primero genera llaves en la pantalla Llaves. La firma se hace con RSA-SHA256 sobre el JSON canónico del payload.</div>
+  <form id="form">
+    <label>Cliente<select id="customerId" required></select></label>
+    <label>Hardware ID<input id="hardwareId" required></label>
+    <label>Fecha emisión<input id="issuedAt" type="date"></label>
+    <label>Fecha vencimiento<input id="expiresAt" type="date"></label>
+    <label>Max eventos activos<input id="maxActiveEvents" type="number" value="3"></label>
+    <label>Max estaciones<input id="maxWorkstations" type="number" value="10"></label>
+    <label>Max bases<input id="maxDatabases" type="number" value="5"></label>
+    <section class="features" id="features"></section>
+    <label class="full">Notas<textarea id="notes">Licencia anual offline no transferible</textarea></label>
+    <div class="actions full">
+      <button>Generar license.dat</button>
+      <button type="button" class="secondary" onclick="copyJson()">Copiar JSON</button>
+      <button type="button" class="secondary" onclick="lastId && download(`/api/licenses/${lastId}/download-dat`)">Descargar license.dat</button>
+    </div>
+  </form>
+  <pre id="result"></pre>
+</main>
+<script>
+const featureList = ["OFFLINE_OPERATION","NFC_CASHLESS","REPORTS","LOCAL_SERVER","MULTI_EVENT","AUDIT_LOGS","INVENTORY","REFUNDS","BAR_POS","CASHIER"];
+let lastId = null;
+features.innerHTML = featureList.map((f, i) => `<label><input type="checkbox" value="${f}" ${i < 6 ? "checked" : ""}> ${f}</label>`).join("");
+const today = new Date();
+issuedAt.valueAsDate = today;
+expiresAt.valueAsDate = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate());
+api("/api/customers").then(cs => customerId.innerHTML = cs.map(c => `<option value="${c.id}">${c.commercialName}</option>`).join(""));
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  const checked = [...document.querySelectorAll("#features input:checked")].map(x => x.value);
+  const body = {
+    customerId: Number(customerId.value), hardwareId: hardwareId.value,
+    issuedAt: issuedAt.value, expiresAt: expiresAt.value,
+    maxActiveEvents: Number(maxActiveEvents.value), maxWorkstations: Number(maxWorkstations.value), maxDatabases: Number(maxDatabases.value),
+    features: checked, notes: notes.value
+  };
+  const record = await api("/api/licenses/generate", { method: "POST", body: JSON.stringify(body) });
+  lastId = record.id;
+  result.textContent = record.licenseJson;
+});
+async function copyJson() { await navigator.clipboard.writeText(result.textContent); }
+</script>
+</body>
+</html>

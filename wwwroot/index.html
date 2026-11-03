@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cero License Manager</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js"></script>
+</head>
+<body>
+<main>
+  <h1>Dashboard</h1>
+  <section class="grid">
+    <div class="card">Clientes<div id="totalClientes" class="metric">0</div></div>
+    <div class="card">Licencias activas<div id="licenciasActivas" class="metric">0</div></div>
+    <div class="card">Por vencer<div id="licenciasPorVencer" class="metric">0</div></div>
+    <div class="card">Vencidas<div id="licenciasVencidas" class="metric">0</div></div>
+  </section>
+</main>
+<script>
+api("/api/dashboard/summary").then(s => {
+  for (const key of Object.keys(s)) document.getElementById(key).textContent = s[key];
+});
+</script>
+</body>
+</html>
