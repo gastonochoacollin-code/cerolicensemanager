@@ -1,13 +1,107 @@
 using CeroLicenseManager.Data;
 using CeroLicenseManager.Models;
 using CeroLicenseManager.Services;
+using CeroLicenseManager.Endpoints;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting.WindowsServices;
+using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseWindowsService();
+var paths = AppPaths.Create(builder.Configuration, builder.Environment);
+builder.Services.AddSingleton(paths);
+
+var bindAddress = builder.Configuration["Server:BindAddress"] ?? "127.0.0.1";
+var port = builder.Configuration.GetValue("Server:Port", 5118);
+if (!IPAddress.TryParse(bindAddress, out var address) || port is < 1 or > 65535)
+    throw new InvalidOperationException("Server:BindAddress o Server:Port inválido.");
+var certificatePath = builder.Configuration["Server:CertificatePath"];
+var certificatePasswordFile = builder.Configuration["Server:CertificatePasswordFile"];
+if (!IPAddress.IsLoopback(address) &&
+    (!builder.Configuration.GetValue<bool>("Server:AllowRemote") || string.IsNullOrWhiteSpace(certificatePath)))
+    throw new InvalidOperationException("El acceso remoto requiere Server:AllowRemote y un certificado TLS explícitos.");
+if (!IPAddress.IsLoopback(address) && builder.Configuration["AllowedHosts"] is (null or "*"))
+    throw new InvalidOperationException("El acceso remoto requiere AllowedHosts explícito.");
+if (!string.IsNullOrWhiteSpace(certificatePath) &&
+    (string.IsNullOrWhiteSpace(certificatePasswordFile) || !File.Exists(certificatePath) || !File.Exists(certificatePasswordFile)))
+    throw new InvalidOperationException("Falta el certificado TLS o su contraseña protegida.");
+builder.WebHost.ConfigureKestrel(options => options.Listen(address, port, listen =>
+{
+    if (!string.IsNullOrWhiteSpace(certificatePath))
+        listen.UseHttps(certificatePath, File.ReadAllText(certificatePasswordFile!).Trim());
+}));
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=license-manager.db"));
+    options.UseSqlite(new SqliteConnectionStringBuilder { DataSource = paths.DatabasePath }.ConnectionString));
+builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>
+{
+    options.Password.RequiredLength = 14;
+    options.Password.RequireDigit = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireNonAlphanumeric = true;
+    options.User.RequireUniqueEmail = false;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.AllowedForNewUsers = true;
+}).AddEntityFrameworkStores<AppDbContext>().AddDefaultTokenProviders();
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.Cookie.Name = "CeroLicenseManager.Session";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+    options.LoginPath = "/login.html";
+    options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    options.SlidingExpiration = false;
+    options.Events.OnRedirectToLogin = context =>
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return Task.CompletedTask;
+    };
+    options.Events.OnRedirectToAccessDenied = context =>
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return Task.CompletedTask;
+    };
+});
+var dataProtection = builder.Services.AddDataProtection()
+    .SetApplicationName("CeroLicenseManager")
+    .PersistKeysToFileSystem(new DirectoryInfo(paths.DataProtectionPath));
+if (OperatingSystem.IsWindows()) dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
+builder.Services.AddAuthorization(options =>
+    options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-CSRF-TOKEN";
+    options.Cookie.Name = "CeroLicenseManager.Csrf";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+});
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(5),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
 builder.Services.AddScoped<KeyManagementService>();
 builder.Services.AddScoped<LicenseSigningService>();
 builder.Services.AddScoped<LicenseIdService>();
@@ -15,17 +109,68 @@ builder.Services.AddScoped<DashboardService>();
 
 var app = builder.Build();
 
-Directory.CreateDirectory(Path.Combine(app.Environment.ContentRootPath, "keys"));
-Directory.CreateDirectory(Path.Combine(app.Environment.ContentRootPath, "exports"));
-
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
 }
 
+app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+{
+    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    await context.Response.WriteAsJsonAsync(new { error = "Error interno." });
+}));
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.XContentTypeOptions = "nosniff";
+    context.Response.Headers.CacheControl = "no-store";
+    context.Response.Headers.XFrameOptions = "DENY";
+    await next();
+});
+app.UseRouting();
+app.UseAuthentication();
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? "";
+    if (!path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
+        && !path.Equals("/health", StringComparison.OrdinalIgnoreCase)
+        && !path.Equals("/login.html", StringComparison.OrdinalIgnoreCase)
+        && !path.Equals("/login.js", StringComparison.OrdinalIgnoreCase)
+        && !path.Equals("/app.css", StringComparison.OrdinalIgnoreCase)
+        && context.User.Identity?.IsAuthenticated != true)
+    {
+        context.Response.Redirect("/login.html");
+        return;
+    }
+    await next();
+});
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseAuthorization();
+app.UseRateLimiter();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api")
+        && !HttpMethods.IsGet(context.Request.Method)
+        && !HttpMethods.IsHead(context.Request.Method))
+    {
+        try
+        {
+            await context.RequestServices.GetRequiredService<IAntiforgery>()
+                .ValidateRequestAsync(context);
+        }
+        catch (AntiforgeryValidationException)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "Solicitud inválida." });
+            return;
+        }
+    }
+    await next();
+});
+
+app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+app.MapAuthEndpoints();
 
 app.MapGet("/api/customers", async (AppDbContext db) =>
     await db.Customers.OrderBy(c => c.CommercialName).ToListAsync());
@@ -87,10 +232,18 @@ app.MapPost("/api/licenses/generate", async (
 {
     var customer = await db.Customers.FindAsync(request.CustomerId);
     if (customer is null) return Results.BadRequest(new { error = "Cliente no encontrado." });
-    if (string.IsNullOrWhiteSpace(request.HardwareId)) return Results.BadRequest(new { error = "Hardware ID requerido." });
+    if (!Regex.IsMatch(request.HardwareId ?? "", "^[0-9A-Fa-f]{64}$"))
+        return Results.BadRequest(new { error = "Hardware ID inválido." });
+    if (customer.Status != "ACTIVO")
+        return Results.BadRequest(new { error = "El cliente debe estar activo." });
 
     var issuedAt = DateOnly.FromDateTime(request.IssuedAt ?? DateTime.Today);
     var expiresAt = DateOnly.FromDateTime(request.ExpiresAt ?? DateTime.Today.AddYears(1));
+    if (expiresAt < issuedAt)
+        return Results.BadRequest(new { error = "La fecha de vencimiento debe ser posterior a la emisión." });
+    if (new[] { request.MaxActiveEvents ?? 3, request.MaxWorkstations ?? 10, request.MaxDatabases ?? 5 }
+        .Any(limit => limit is < 1 or > 10000))
+        return Results.BadRequest(new { error = "Los límites deben estar entre 1 y 10000." });
     var licenseId = await licenseIds.NextIdAsync(issuedAt.Year);
     var features = request.Features.Count > 0 ? request.Features : LicenseDefaults.Features;
 
@@ -101,7 +254,7 @@ app.MapPost("/api/licenses/generate", async (
         LicenseDefaults.LicenseType,
         issuedAt.ToString("yyyy-MM-dd"),
         expiresAt.ToString("yyyy-MM-dd"),
-        request.HardwareId.Trim(),
+        request.HardwareId!.Trim(),
         request.MaxActiveEvents ?? 3,
         request.MaxWorkstations ?? 10,
         request.MaxDatabases ?? 5,
@@ -153,6 +306,8 @@ app.MapPost("/api/licenses/{id:int}/renew", async (int id, LicenseRenewRequest r
 {
     var existing = await db.LicenseRecords.FindAsync(id);
     if (existing is null) return Results.NotFound();
+    if (request.ExpiresAt.HasValue && request.ExpiresAt.Value.Date < DateTime.Today)
+        return Results.BadRequest(new { error = "La nueva fecha debe ser vigente." });
 
     var payload = signing.GetPayload(existing.LicenseJson) with
     {
@@ -174,12 +329,11 @@ app.MapPost("/api/licenses/{id:int}/renew", async (int id, LicenseRenewRequest r
 app.MapPost("/api/licenses/{id:int}/suspend", async (int id, AppDbContext db) => await SetLicenseStatus(id, "SUSPENDIDA", db));
 app.MapPost("/api/licenses/{id:int}/revoke", async (int id, AppDbContext db) => await SetLicenseStatus(id, "REVOCADA", db));
 
-app.MapGet("/api/licenses/{id:int}/download-dat", async (int id, AppDbContext db, LicenseSigningService signing) =>
+app.MapGet("/api/licenses/{id:int}/download-dat", async (int id, AppDbContext db) =>
 {
     var license = await db.LicenseRecords.FindAsync(id);
     if (license is null) return Results.NotFound();
-    var path = await signing.ExportLicenseDat(license);
-    return Results.File(path, "application/octet-stream", "license.dat");
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(license.LicenseJson), "application/octet-stream", "license.dat");
 });
 
 app.MapGet("/api/licenses/{id:int}/download-json", async (int id, AppDbContext db) =>

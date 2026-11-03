@@ -1,9 +1,11 @@
 using CeroLicenseManager.Models;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace CeroLicenseManager.Data;
 
-public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<IdentityUser>(options)
 {
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<LicenseRecord> LicenseRecords => Set<LicenseRecord>();
@@ -11,6 +13,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
         modelBuilder.Entity<Customer>().Property(c => c.CommercialName).HasMaxLength(200);
         modelBuilder.Entity<Customer>().Property(c => c.Status).HasMaxLength(40);
         modelBuilder.Entity<LicenseRecord>().HasIndex(l => l.LicenseId).IsUnique();

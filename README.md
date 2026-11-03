@@ -1,81 +1,76 @@
 # CeroLicenseManager
 
-Panel web **interno** para emitir licencias sin conexión del servidor CERO Efectivo (`LicenciasCERO` / `Cashless.Api`). Está escrito en ASP.NET Core 8, usa Entity Framework Core 8 con SQLite y sirve una interfaz HTML, CSS y JavaScript desde `wwwroot/`.
+Emisor **local** de licencias para CERO Efectivo (`LicenciasCERO`). Administra clientes, genera un par RSA, firma licencias para el Hardware ID del servidor cliente y descarga archivos `.dat`. Usa ASP.NET Core 8, Identity, Entity Framework Core 8 y SQLite; la interfaz HTML/CSS/JavaScript está en `wwwroot/`.
 
-El emisor administra clientes, genera un par RSA, firma licencias ligadas al Hardware ID del servidor cliente, permite descargarlas como `license.dat` y comprueba firmas. También conserva registros de emisión y permite renovar una licencia. **No tiene autenticación ni autorización**: ejecútelo solo en un equipo de confianza, ligado a loopback y sin exponer el puerto a una red.
+## Seguridad y primera ejecución
 
-## Requisitos y compilación
+La aplicación escucha en `127.0.0.1:5118` de forma predeterminada. Abra `http://127.0.0.1:5118/login.html` **en el mismo equipo**. En una instalación sin usuarios, esa página permite crear una sola vez la contraseña del administrador `gaston`; después, el alta inicial se cierra. No existe contraseña predeterminada. Se exige una contraseña de al menos 14 caracteres, con mayúscula, minúscula, número y símbolo. ASP.NET Core Identity la guarda como hash en SQLite.
 
-- .NET 8 SDK para compilar. `dotnet restore` necesita acceso a NuGet en la primera restauración si los paquetes no están en caché.
-- Windows, Linux o macOS compatible con .NET 8 para el proyecto fuente. El comando de publicación de abajo crea un paquete autocontenido **Windows x64**.
-- Espacio y permisos de escritura para `license-manager.db`, `keys/` y `exports/` en la carpeta desde la que se ejecuta la aplicación.
+Todos los endpoints de clientes, licencias, llaves, descargas, verificación y dashboard requieren sesión en el servidor. Solo quedan públicos el acceso, el alta inicial local, la entrega del token CSRF y `/health` (que devuelve únicamente `ok`). La sesión usa cookie `HttpOnly`, `SameSite=Strict`, dura ocho horas sin renovación deslizante y se invalida al cerrar sesión. Hay bloqueo por fallos de contraseña, limitación de intentos y validación CSRF en todas las escrituras API. Si se usa HTTPS, la cookie se marca `Secure`.
+
+Los datos viven fuera de la aplicación, en `%ProgramData%\CeroLicenseManager` en Windows. El instalador restringe esa carpeta a administradores, SYSTEM y `LocalService`. Contiene `license-manager.db` (incluido el hash del administrador), `keys/`, `exports/`, `data-protection/` y `backups/`; nada de ello va al repositorio ni al paquete. En Windows, las llaves persistentes de sesión se protegen con DPAPI. El servicio se ejecuta como `LocalService` y el instalador no abre firewall.
+
+Para habilitar una dirección distinta de loopback, el código exige **todas** estas opciones explícitas: `Server:AllowRemote=true`, `Server:BindAddress`, `Server:CertificatePath`, `Server:CertificatePasswordFile` y `AllowedHosts` restringido. El instalador entregado configura solo loopback; no publica un endpoint remoto.
+
+## Requisitos, compilación y pruebas
+
+- Desarrollo: .NET 8 SDK, PowerShell 7 para la prueba de seguridad y acceso a NuGet al restaurar por primera vez.
+- Equipo Windows x64 de destino: no necesita .NET si se usa el ZIP autocontenido. La instalación del servicio requiere PowerShell como administrador.
+- El emisor no necesita nube ni internet para firmar licencias. La restauración inicial de paquetes NuGet sí puede necesitar internet.
 
 ```powershell
 dotnet restore .\CeroLicenseManager.csproj
 dotnet build .\CeroLicenseManager.csproj -c Release
-dotnet run --project .\CeroLicenseManager.csproj --launch-profile http
+.\Deployment\package-windows.ps1 -Version 'VERSION'
+.\tests\security-smoke.ps1 -ExecutablePath '.\artifacts\CeroLicenseManager-win-x64-VERSION\app\CeroLicenseManager.exe'
 ```
 
-El perfil `http` usa `http://localhost:5118`. Abra esa URL solo en el equipo del emisor. `Program.cs` aplica las migraciones de `Migrations/` al arrancar; no es obligatorio ejecutar `dotnet ef database update`. El manifiesto `.config/dotnet-tools.json` permite usar `dotnet tool restore` y `dotnet ef` para mantenimiento, si se necesita.
+`package-windows.ps1` crea `artifacts\CeroLicenseManager-win-x64-VERSION.zip` y una carpeta equivalente. El ZIP contiene el ejecutable autocontenido, páginas, `install.ps1`, `manage.ps1`, `verify-package.ps1`, esta guía y un manifiesto SHA-256. No contiene base, llaves, licencias emitidas ni datos de clientes. La prueba usa una base y contraseña aleatorias aisladas; comprueba alta única, login, rechazo de accesos anónimos, CSRF y cierre de sesión.
 
-## Instalar en otra computadora
+El paquete y la aplicación pueden verificarse sin privilegios de administrador. Antes de depender del servicio en producción, ensaye `install.ps1`, ACL, respaldo, actualización y desinstalación en un Windows x64 de prueba con PowerShell elevado; esa prueba requiere permisos que la compilación por sí sola no proporciona.
 
-Para compilar directamente allí, copie o clone este repositorio, instale .NET 8 SDK y ejecute los comandos anteriores. Para generar un paquete que no requiera .NET en un equipo Windows x64:
+## Instalar en otra computadora Windows x64
+
+1. Extraiga el ZIP en una carpeta temporal. Como administrador, compruebe el manifiesto y ejecute el instalador desde esa carpeta:
+
+   ```powershell
+   .\verify-package.ps1
+   .\install.ps1
+   ```
+
+   El instalador copia la aplicación a `%ProgramFiles%\CeroLicenseManager\app`, crea `%ProgramData%\CeroLicenseManager` con ACL restringida, registra el servicio `CeroLicenseManager` como `LocalService` y comprueba `/health` en loopback.
+2. En el **mismo equipo**, abra `http://127.0.0.1:5118/login.html` y cree la contraseña de `gaston`. Genere el par RSA en `/llaves.html` una sola vez.
+3. Si está trasladando un emisor existente, **detenga primero la instancia antigua** y use `install.ps1 -LegacyDataPath 'RUTA_ANTIGUA'`. Esa ruta debe contener `license-manager.db` y `keys/private_key.pem` más `keys/public_key.pem`; el script copia esos archivos y las exportaciones sin borrar el origen. No genere llaves nuevas si necesita renovar licencias anteriores.
+
+La versión anterior guardaba la base y las llaves junto al ejecutable. El arranque nuevo detecta esa situación y se detiene antes de crear una base vacía por accidente. Para pruebas aisladas puede configurar la variable `CERO_LICENSE_DATA_ROOT` a una ruta **absoluta**; no la apunte a una carpeta compartida o pública.
+
+## Actualizar, respaldar y desinstalar
+
+Ejecute como administrador. El `manage.ps1` instalado está en `%ProgramFiles%\CeroLicenseManager`; para actualizar use el **paquete nuevo descomprimido**:
 
 ```powershell
-dotnet publish .\CeroLicenseManager.csproj -c Release -r win-x64 --self-contained true -p:UseAppHost=true -o .\publish
+.\manage.ps1 -Action status
+.\manage.ps1 -Action backup
+.\manage.ps1 -Action update -PackagePath 'RUTA_DEL_PAQUETE_NUEVO'
+.\manage.ps1 -Action uninstall
 ```
 
-Copie el contenido de `publish/` al equipo nuevo, abra PowerShell en esa carpeta y ejecute:
+El respaldo detiene brevemente el servicio para copiar SQLite de forma consistente y guarda base, claves, exportaciones y llaves de sesión en `%ProgramData%\CeroLicenseManager\backups\recovery-...`. **Ese respaldo contiene secretos y datos personales**: guárdelo cifrado y restringido fuera del equipo. La actualización verifica el manifiesto, hace respaldo, instala la nueva aplicación y conserva la anterior para reversión. La desinstalación retira servicio y aplicación; deja intactos base, llaves, exportaciones y respaldos en ProgramData. En una migración a otro Windows, las llaves DPAPI de sesión no son portables; cierre sesiones y regenérelas en el nuevo equipo.
 
-```powershell
-.\CeroLicenseManager.exe --urls http://127.0.0.1:5118
-```
+## Emitir y activar
 
-Abra `http://127.0.0.1:5118` en el mismo equipo. La primera ejecución crea una base SQLite vacía y aplica migraciones. `appsettings.json` usa `Data Source=license-manager.db` relativa al directorio de trabajo. Mantenga fijo ese directorio o configure `ConnectionStrings:DefaultConnection` para una ruta persistente. No copie al paquete la base ni las claves del equipo de desarrollo.
+1. Inicie sesión como `gaston`, compruebe el par en `/llaves.html` y cree el cliente en `/clientes.html`.
+2. Obtenga el Hardware ID desde `/licencia.html` del servidor CERO Efectivo. En `/generar-licencia.html` indique cliente, ID, vigencia y límites. Descargue el `.dat`.
+3. Compruebe que `Licensing:PublicKeyPem` del servidor cliente corresponde a `keys/public_key.pem` de **este** emisor. Entregue únicamente el `.dat` y la clave **pública** por un medio confiable; nunca copie `private_key.pem` al cliente.
+4. El `SuperAdmin` importa el `.dat` en el servidor cliente y verifica `canOperate: true` en `/api/license/status`.
 
-**Si es una instalación nueva**, genere el par de claves en `/llaves.html` y guarde una copia protegida de `keys/private_key.pem`, `keys/public_key.pem` y `license-manager.db` fuera del equipo. **Si está trasladando un emisor existente**, restaure esas tres piezas desde un respaldo seguro antes de emitir o renovar. Generar otro par invalida la verificación de licencias anteriores con la clave pública anterior; una base nueva también reinicia la secuencia de IDs `CE-AÑO-NNNN`.
+[LicenseSigningService.cs](Services/LicenseSigningService.cs) firma el JSON canónico del `payload` con RSA-SHA256 y verifica su firma. [Program.cs](Program.cs) permite renovar y descargar un `.dat` actualizado; la importación en el cliente es manual. Suspender o revocar en este panel solo cambia el estado en SQLite: **no invalida una copia `.dat` ya entregada** a un servidor sin conexión.
 
-## Configuración y archivos
+## Archivos y problemas frecuentes
 
-| Ruta | Función |
-| --- | --- |
-| `Program.cs` | Arranque, migraciones y endpoints de clientes, licencias y claves |
-| `CeroLicenseManager.csproj` | .NET 8 y dependencias EF Core/SQLite |
-| `Data/AppDbContext.cs`, `Models/`, `Migrations/` | Esquema de clientes, licencias y registros |
-| `Services/KeyManagementService.cs` | Generación RSA 4096 y lectura del par de claves |
-| `Services/LicenseSigningService.cs` | JSON canónico, firma/verificación RSA-SHA256 y exportación |
-| `Services/LicenseIdService.cs` | IDs `CE-AÑO-NNNN` basados en la base local |
-| `wwwroot/` | Panel de llaves, clientes y licencias |
-| `appsettings.json`, `Properties/launchSettings.json` | SQLite y perfil local de desarrollo |
-| `.config/dotnet-tools.json` | Herramienta opcional `dotnet-ef` |
+`Program.cs` registra endpoints y seguridad; `Endpoints/AuthEndpoints.cs` implementa alta y sesión; `Data/AppDbContext.cs` y `Migrations/` definen las tablas; `Services/AppPaths.cs` resuelve el almacenamiento; `Services/KeyManagementService.cs` y `Services/LicenseSigningService.cs` administran y usan las llaves. `.gitignore` y `CeroLicenseManager.csproj` excluyen datos reales y secretos de Git y de `dotnet publish`.
 
-`keys/`, `exports/` y `license-manager.db` son datos **locales**, no parte del repositorio ni del paquete publicado. La clave privada se lee del disco para firmar; la API solo descarga la clave pública. El archivo `.gitignore` excluye claves, bases, licencias reales y artefactos, y el proyecto excluye esos archivos de `dotnet publish`.
-
-## Emitir y activar una licencia
-
-1. En `/llaves.html`, genere el par RSA una sola vez o compruebe que el par restaurado coincida.
-2. Cree el cliente en `/clientes.html`.
-3. En el **servidor cliente** CERO Efectivo, inicie sesión como `SuperAdmin`, abra `/licencia.html` y obtenga el Hardware ID o descargue la solicitud JSON. El ID deriva de `MachineGuid` de Windows y la arquitectura del servidor; al cambiar de equipo normalmente se necesita una licencia nueva.
-4. En `/generar-licencia.html`, seleccione cliente, pegue ese Hardware ID y establezca vigencia, límites y funciones. Descargue el `.dat` emitido.
-5. Compruebe que `Licensing:PublicKeyPem` en la configuración del servidor cliente corresponde a `keys/public_key.pem` de **este emisor**. La clave pública puede distribuirse; nunca copie `keys/private_key.pem` al cliente.
-6. Entregue el `.dat` por un medio confiable. El `SuperAdmin` lo importa en `/licencia.html` del cliente y comprueba que `/api/license/status` indique `canOperate: true`.
-
-El `.dat` contiene `payload`, `signature` y `algorithm`. `LicenseSigningService` ordena las propiedades del payload y firma sus bytes UTF-8 con RSA PKCS#1 v1.5 y SHA-256. `POST /api/licenses/verify` comprueba la firma con la clave pública local. Para renovar, `POST /api/licenses/{id}/renew` firma una nueva fecha de vencimiento y sobrescribe el archivo exportado de ese ID; entregue el nuevo `.dat` e impórtelo en el cliente.
-
-**Suspender o revocar en este panel solo cambia el estado en `license-manager.db`** (`Program.cs`, `SetLicenseStatus`). No modifica un `.dat` ya entregado ni avisa al servidor cliente sin conexión. La retirada local en el cliente tampoco revoca criptográficamente copias existentes. No considere esas acciones una revocación inmediata en campo.
-
-## Seguridad y respaldo
-
-- No exponga el emisor a internet o LAN: sus endpoints de generación, renovación, descarga y claves no comprueban identidad. Use `--urls http://127.0.0.1:5118` y una cuenta local de confianza.
-- Restrinja el acceso del sistema operativo a `keys/private_key.pem`, la base y `exports/`. La base contiene datos de clientes, Hardware IDs, JSON de licencia y firmas. Cifre los respaldos.
-- Mantenga juntos y respaldados el par de claves y la base. Sin la clave privada original no podrá firmar renovaciones compatibles. Sin la base original puede haber colisión de IDs.
-- No publique ni adjunte `keys/`, `exports/`, `license-manager.db`, respaldos o archivos `.env` con secretos. `keys/public_key.pem` es público, pero se excluye del repositorio para evitar confundir pares de entornos distintos.
-
-## Solución de problemas
-
-- **Falla al arrancar:** compruebe .NET 8, permiso de escritura en el directorio de trabajo y la ruta SQLite de `ConnectionStrings:DefaultConnection`.
-- **No genera licencia:** confirme que existe un cliente y que `keys/private_key.pem` y `keys/public_key.pem` forman un par válido en `/llaves.html`.
-- **El cliente rechaza la firma:** compare las claves públicas del emisor y de `Licensing:PublicKeyPem` en `LicenciasCERO`; emita de nuevo solo con la clave privada correspondiente.
-- **El cliente indica hardware distinto:** obtenga una solicitud nueva desde el servidor donde se instalará la licencia y emita un `.dat` para ese ID.
-- **Una renovación no aparece en el cliente:** descargue el `.dat` actualizado e impórtelo allí; el proceso es manual y sin conexión.
+- **No arranca:** compruebe el servicio, la ruta de ProgramData y sus ACL. Si detecta datos heredados, use `-LegacyDataPath` antes de iniciar.
+- **No se puede iniciar sesión:** confirme que está en el mismo equipo, revise si la cuenta ya fue creada y espere el fin del bloqueo tras intentos fallidos.
+- **Firma rechazada:** compare la clave pública del emisor con `Licensing:PublicKeyPem` del cliente y use el Hardware ID de ese servidor.
+- **Par incompleto:** restaure ambos PEM desde respaldo; la aplicación no sobrescribe un archivo de llave existente al generar otro par.

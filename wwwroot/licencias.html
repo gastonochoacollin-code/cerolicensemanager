@@ -21,7 +21,7 @@
   </table>
 </main>
 <script>
-api("/api/customers").then(cs => customerId.innerHTML += cs.map(c => `<option value="${c.id}">${c.commercialName}</option>`).join(""));
+api("/api/customers").then(cs => customerId.innerHTML += cs.map(c => `<option value="${c.id}">${escapeHtml(c.commercialName)}</option>`).join(""));
 async function act(id, action) { await api(`/api/licenses/${id}/${action}`, { method: "POST", body: "{}" }); load(); }
 async function renew(id) {
   const expiresAt = prompt("Nueva fecha de vencimiento (YYYY-MM-DD)");
@@ -33,8 +33,8 @@ async function load() {
   if (status.value) qs.set("status", status.value);
   const licenses = await api(`/api/licenses?${qs}`);
   rows.innerHTML = licenses.map(l => `<tr>
-    <td>${l.licenseId}</td><td>${l.customerName}</td><td>${fmtDate(l.issuedAt)} a ${fmtDate(l.expiresAt)}</td>
-    <td>Eventos ${l.maxActiveEvents}<br>Estaciones ${l.maxWorkstations}<br>Bases ${l.maxDatabases}</td><td>${l.status}</td>
+    <td>${escapeHtml(l.licenseId)}</td><td>${escapeHtml(l.customerName)}</td><td>${fmtDate(l.issuedAt)} a ${fmtDate(l.expiresAt)}</td>
+    <td>Eventos ${l.maxActiveEvents}<br>Estaciones ${l.maxWorkstations}<br>Bases ${l.maxDatabases}</td><td>${escapeHtml(l.status)}</td>
     <td class="actions"><button onclick="download('/api/licenses/${l.id}/download-dat')">DAT</button><button class="secondary" onclick="download('/api/licenses/${l.id}/download-json')">JSON</button><button onclick="renew(${l.id})">Renovar</button><button class="warn" onclick="act(${l.id}, 'suspend')">Suspender</button><button class="danger" onclick="act(${l.id}, 'revoke')">Revocar</button></td>
   </tr>`).join("");
 }

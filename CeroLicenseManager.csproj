@@ -4,15 +4,22 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <DefaultItemExcludes>$(DefaultItemExcludes);keys\**;exports\**;backups\**;*.db;*.db-shm;*.db-wal;*.dat;*.pem;*.pfx;*.key</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);keys\**\*;exports\**\*;backups\**\*;artifacts\**\*;publish\**\*;test-results\**\*;tests\**\*;*.db;*.db-shm;*.db-wal;*.dat;*.pem;*.pfx;*.key</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Remove="keys\**\*;exports\**\*;backups\**\*;artifacts\**\*;publish\**\*;test-results\**\*;tests\**\*;*.db;*.db-shm;*.db-wal;*.dat;*.pem;*.pfx;*.key" />
+    <None Remove="keys\**\*;exports\**\*;backups\**\*;artifacts\**\*;publish\**\*;test-results\**\*;tests\**\*;*.db;*.db-shm;*.db-wal;*.dat;*.pem;*.pfx;*.key" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.22" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.22">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.22" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
   </ItemGroup>
 
 </Project>

@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace CeroLicenseManager.Services;
 
-public class LicenseSigningService(KeyManagementService keys, IWebHostEnvironment environment)
+public class LicenseSigningService(KeyManagementService keys, AppPaths paths)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -47,10 +47,10 @@ public class LicenseSigningService(KeyManagementService keys, IWebHostEnvironmen
                 RSASignaturePadding.Pkcs1);
             return new { valid = isValid, algorithm };
         }
-        catch (Exception ex)
+        catch
         {
             await Task.CompletedTask;
-            return new { valid = false, error = ex.Message };
+            return new { valid = false, error = "Licencia inválida." };
         }
     }
 
@@ -68,7 +68,7 @@ public class LicenseSigningService(KeyManagementService keys, IWebHostEnvironmen
 
     public async Task<string> ExportLicenseDat(LicenseRecord record)
     {
-        var exportPath = Path.Combine(environment.ContentRootPath, "exports");
+        var exportPath = paths.ExportsPath;
         Directory.CreateDirectory(exportPath);
         var filePath = Path.Combine(exportPath, $"{record.LicenseId}.license.dat");
         await File.WriteAllTextAsync(filePath, record.LicenseJson, Encoding.UTF8);

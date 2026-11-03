@@ -44,7 +44,7 @@ async function setStatus(id, action) { await api(`/api/customers/${id}/${action}
 async function load() {
   customers = await api("/api/customers");
   rows.innerHTML = customers.map(c => `<tr>
-    <td>${c.id}</td><td>${c.commercialName}<br>${c.legalName || ""}</td><td>${c.contactName || ""}<br>${c.email || ""}</td><td>${c.status}</td>
+    <td>${c.id}</td><td>${escapeHtml(c.commercialName)}<br>${escapeHtml(c.legalName)}</td><td>${escapeHtml(c.contactName)}<br>${escapeHtml(c.email)}</td><td>${escapeHtml(c.status)}</td>
     <td class="actions"><button onclick="edit(${c.id})">Editar</button><button class="secondary" onclick="setStatus(${c.id}, 'activate')">Activar</button><button class="warn" onclick="setStatus(${c.id}, 'suspend')">Suspender</button></td>
   </tr>`).join("");
 }

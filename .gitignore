@@ -8,6 +8,7 @@ obj/
 .agents/
 publish/
 artifacts/
+test-results/
 *.user
 *.suo
 *.log

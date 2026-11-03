@@ -36,7 +36,7 @@ features.innerHTML = featureList.map((f, i) => `<label><input type="checkbox" va
 const today = new Date();
 issuedAt.valueAsDate = today;
 expiresAt.valueAsDate = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate());
-api("/api/customers").then(cs => customerId.innerHTML = cs.map(c => `<option value="${c.id}">${c.commercialName}</option>`).join(""));
+api("/api/customers").then(cs => customerId.innerHTML = cs.map(c => `<option value="${c.id}">${escapeHtml(c.commercialName)}</option>`).join(""));
 form.addEventListener("submit", async e => {
   e.preventDefault();
   const checked = [...document.querySelectorAll("#features input:checked")].map(x => x.value);

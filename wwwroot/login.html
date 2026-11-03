@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acceso | Cero License Manager</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/login.js" defer></script>
+</head>
+<body>
+<main class="login-shell">
+  <section class="card">
+    <h1 id="heading">Acceso de Gaston</h1>
+    <p id="description">Introduce la contraseña del administrador.</p>
+    <form id="loginForm">
+      <label>Usuario<input value="gaston" disabled autocomplete="username"></label>
+      <label>Contraseña<input id="password" type="password" required autocomplete="current-password"></label>
+      <label id="confirmRow" hidden>Confirmar contraseña<input id="confirmPassword" type="password" autocomplete="new-password"></label>
+      <button id="submitButton" type="submit">Iniciar sesión</button>
+    </form>
+    <p id="error" class="error" role="alert"></p>
+  </section>
+</main>
+</body>
+</html>
